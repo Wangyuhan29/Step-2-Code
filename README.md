@@ -13,19 +13,23 @@ Step-1-Code 负责从 GitHub API 采集 Rust 社区数据并存入 `github_rust_
 - **文本规范化**：Unicode NFC 标准化、统一换行符、合并多余空行和空格
 
 ### 第二步：情感分类（基于 DeepSeek API）
-使用 DeepSeek 大语言模型对预处理后的文本进行四分类情感分析：
+使用 DeepSeek 大语言模型对预处理后的文本进行细粒度情感分析。
+本项目面向软件开发场景，不采用简单的"正/负/中性"三分类，而是设计贴近开发者表达习惯的五类标签体系：
 
 | 标签 | 含义 |
 |------|------|
-| `positive` | 正面情感（赞扬、感谢、满意、积极期待等）|
-| `negative` | 负面情感（批评、抱怨、沮丧、不满等）|
-| `neutral`  | 中性/客观（技术描述、功能说明等）|
-| `mixed`    | 混合情感（同时包含明显正面和负面情感）|
+| `functional_performance`   | 功能/性能类：对语言特性、运行效率、稳定性、兼容性、生态或整体开发体验的正面或负面评价 |
+| `usability_learning`       | 易用性与学习曲线类：围绕语法复杂度、API 设计、调试难度、上手体验等提出的意见或反馈 |
+| `documentation_ecosystem`  | 文档与生态评价类：针对文档质量、社区支持、第三方库生态的看法 |
+| `neutral_factual`          | 中性陈述与事实描述类：主要陈述问题现象或使用场景，不带明显情绪色彩 |
+| `other_undetermined`       | 其他情感或无法判定类：包含讽刺、复杂情绪或信息不足，无法归入上述类别的样本 |
+
+该标签体系既保留了情感分析的基本极性信息，也强化了与具体开发体验维度的对应关系，便于在多维空间内进行分析。
 
 Prompt 设计要素：
 - 详细的标签定义与判断维度说明
 - 针对 GitHub 技术社区的领域适配说明
-- 四组 Few-shot 示例（每个标签各一例）
+- 五组 Few-shot 示例（每个标签各一例）
 - 严格的 JSON 输出格式约束（`label`、`confidence`、`reasoning`）
 
 ### 数据存储
@@ -154,7 +158,7 @@ python main.py --config /path/to/your/config.ini
 |------|------|------|
 | id | BIGINT | 主键（自增）|
 | processed_text_id | BIGINT | 关联的 processed_texts.id |
-| sentiment_label | VARCHAR(20) | 情感标签（positive/negative/neutral/mixed）|
+| sentiment_label | VARCHAR(30) | 情感标签（functional_performance/usability_learning/documentation_ecosystem/neutral_factual/other_undetermined）|
 | confidence | FLOAT | 置信度（0.0 ~ 1.0）|
 | reasoning | TEXT | 模型给出的分析理由 |
 | model_name | VARCHAR(100) | 使用的模型名称 |
@@ -183,12 +187,12 @@ FROM sentiment_results
 GROUP BY sentiment_label
 ORDER BY count DESC;
 
--- 查看高置信度的负面情感文本
+-- 查看高置信度的功能/性能类反馈文本（含正面与负面评价）
 SELECT pt.source_type, pt.source_id, pt.processed_text,
        sr.sentiment_label, sr.confidence, sr.reasoning
 FROM processed_texts pt
 JOIN sentiment_results sr ON sr.processed_text_id = pt.id
-WHERE sr.sentiment_label = 'negative'
+WHERE sr.sentiment_label = 'functional_performance'
   AND sr.confidence >= 0.9
 ORDER BY sr.confidence DESC
 LIMIT 20;

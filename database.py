@@ -40,7 +40,7 @@ _CREATE_SENTIMENT_RESULTS_TABLE = """
 CREATE TABLE IF NOT EXISTS sentiment_results (
     id                  BIGINT PRIMARY KEY AUTO_INCREMENT,
     processed_text_id   BIGINT       NOT NULL COMMENT '关联的 processed_texts.id',
-    sentiment_label     VARCHAR(20)  NOT NULL COMMENT '情感标签: positive/negative/neutral/mixed',
+    sentiment_label     VARCHAR(30)  NOT NULL COMMENT '情感标签: functional_performance/usability_learning/documentation_ecosystem/neutral_factual/other_undetermined',
     confidence          FLOAT        DEFAULT NULL COMMENT '置信度 0-1',
     reasoning           TEXT         DEFAULT NULL COMMENT '模型给出的分析理由',
     model_name          VARCHAR(100) DEFAULT NULL COMMENT '使用的模型',
