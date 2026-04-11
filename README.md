@@ -2,40 +2,53 @@
 
 本项目是 [Step-1-Code](https://github.com/Wangyuhan29/Step-1-Code) 的后续项目。  
 Step-1-Code 负责从 GitHub API 采集 Rust 社区数据并存入 `github_rust_data` MySQL 数据库；  
-本项目（Step-2-Code）负责对采集到的数据进行**预处理**和**情感分类**。
+本项目（Step-2-Code）负责对采集到的数据进行**手动 SQL 筛选**和**情感分类**。
 
 ## 功能特性
 
-### 第一步：结构解析与数据预处理
-- **噪声剥离**：去除代码块（\`\`\`...\`\`\` 和行内代码）、HTML 标签与实体、URL、日志行、堆栈跟踪、Diff 行、Markdown 引用块等
-- **去重**：基于 SHA-256 内容哈希的精确去重，避免重复分析相同内容
-- **语言过滤**：使用 `langdetect` 自动检测语言，只保留指定语言（默认保留英文和中文）的文本
-- **文本规范化**：Unicode NFC 标准化、统一换行符、合并多余空行和空格
+### 第一步：手动 SQL 筛选
+- 你自行编写 `SELECT` 语句从原始表筛选需要分析的数据。
+- 查询结果至少需要包含 `id`（或别名 `text_id`）和可分析文本列。
+- 文本列优先读取 `text`，若无则自动拼接 `title/description/body`。
 
 ### 第二步：情感分类（基于 DeepSeek API）
 使用 DeepSeek 大语言模型对预处理后的文本进行细粒度情感分析。
-本项目面向软件开发场景，不采用简单的"正/负/中性"三分类，而是设计贴近开发者表达习惯的五类标签体系：
+当前 Prompt 已调整为**方面级情感分析（ABSA）**：
+- 一条文本可包含多个 aspect（通常不超过 3 个）
+- 每个 aspect 输出 `sentiment`（`positive` / `negative` / `neutral`）
+- 同时输出离散强度 `score`（`2/1/0/-1/-2`）
 
-| 标签 | 含义 |
-|------|------|
-| `functional_performance`   | 功能/性能类：对语言特性、运行效率、稳定性、兼容性、生态或整体开发体验的正面或负面评价 |
-| `usability_learning`       | 易用性与学习曲线类：围绕语法复杂度、API 设计、调试难度、上手体验等提出的意见或反馈 |
-| `documentation_ecosystem`  | 文档与生态评价类：针对文档质量、社区支持、第三方库生态的看法 |
-| `neutral_factual`          | 中性陈述与事实描述类：主要陈述问题现象或使用场景，不带明显情绪色彩 |
-| `other_undetermined`       | 其他情感或无法判定类：包含讽刺、复杂情绪或信息不足，无法归入上述类别的样本 |
-
-该标签体系既保留了情感分析的基本极性信息，也强化了与具体开发体验维度的对应关系，便于在多维空间内进行分析。
+可选 aspect 列表：
+- Language：`ownership`、`type_system`、`safety`、`performance`
+- Experience：`learning_curve`、`compile_time`、`error_message`、`debugging`
+- Engineering：`maintainability`、`readability`、`extensibility`、`api_design`
+- Ecosystem：`package_manager`、`libraries`、`framework_support`、`community`
 
 Prompt 设计要素：
-- 详细的标签定义与判断维度说明
+- 详细的 aspect 定义与判断维度说明
 - 针对 GitHub 技术社区的领域适配说明
-- 五组 Few-shot 示例（每个标签各一例）
-- 严格的 JSON 输出格式约束（`label`、`confidence`、`reasoning`）
+- Few-shot 示例引导（输入/输出成对）
+- 严格 JSON 输出约束（禁止 Markdown/表格/代码块）
+- 响应侧仅接受 JSON，不再兼容或清洗制表/Markdown 格式输出
 
-### 数据存储
-处理结果写入 `github_rust_data` 数据库的两张新表：
-- `processed_texts`：预处理结果（原始文本、清洗后文本、检测语言、是否重复）
-- `sentiment_results`：情感分类结果（标签、置信度、分析理由、使用模型）
+模型输出格式（严格 JSON）：
+
+```json
+{
+  "annotations": [
+    {
+      "aspect": "learning_curve",
+      "sentiment": "negative",
+      "score": -2
+    }
+  ]
+}
+```
+
+### 数据输出
+情感分析结果输出到 JSON 文件（默认 `sentiment_output.json`），每条记录仅包含：
+- `text_id`：原始表 `id`
+- `annotations`：模型输出的 aspect 标注结果
 
 ## 环境要求
 
@@ -96,6 +109,7 @@ save_to_db = true
 batch_size = 10
 request_delay = 1.0
 max_retries = 3
+output_json_file = sentiment_output.json
 ```
 
 ### 4. 使用环境变量（可选）
@@ -107,62 +121,16 @@ export MYSQL_PASSWORD=your_password
 
 ## 使用方法
 
-### 全流程（预处理 + 情感分析）
+### 手动 SQL 筛选并执行情感分析
+
+SQL命令写入QUERY.sql
+
+### 终端执行：
 
 ```bash
-python main.py
+python .\main.py --config .\config.ini --sql-file .\QUERY.sql --output-json .\sentiment_output.json
 ```
 
-### 仅执行预处理
-
-```bash
-python main.py --step preprocess
-```
-
-### 仅执行情感分析
-
-```bash
-python main.py --step analyze
-```
-
-### 通过命令行传入 API Key
-
-```bash
-python main.py --api-key your_deepseek_api_key
-```
-
-### 使用自定义配置文件
-
-```bash
-python main.py --config /path/to/your/config.ini
-```
-
-## 数据库结构
-
-### processed_texts 表
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | BIGINT | 主键（自增）|
-| source_type | VARCHAR(20) | 来源类型：issue / pr / issue_comment / pr_comment |
-| source_id | BIGINT | 原始记录 ID |
-| raw_text | MEDIUMTEXT | 原始文本 |
-| processed_text | MEDIUMTEXT | 预处理后的文本 |
-| language | VARCHAR(20) | 检测到的语言代码 |
-| is_duplicate | TINYINT(1) | 是否为重复文本（1=是）|
-| created_at | DATETIME | 记录创建时间 |
-
-### sentiment_results 表
-
-| 字段 | 类型 | 说明 |
-|------|------|------|
-| id | BIGINT | 主键（自增）|
-| processed_text_id | BIGINT | 关联的 processed_texts.id |
-| sentiment_label | VARCHAR(30) | 情感标签（functional_performance/usability_learning/documentation_ecosystem/neutral_factual/other_undetermined）|
-| confidence | FLOAT | 置信度（0.0 ~ 1.0）|
-| reasoning | TEXT | 模型给出的分析理由 |
-| model_name | VARCHAR(100) | 使用的模型名称 |
-| created_at | DATETIME | 记录创建时间 |
 
 ## 项目结构
 
@@ -178,49 +146,43 @@ Step-2-Code/
 └── main.py                # 程序入口
 ```
 
-## 查询示例
+## SQL 筛选示例
 
 ```sql
--- 查看各情感标签分布
-SELECT sentiment_label, COUNT(*) AS count
-FROM sentiment_results
-GROUP BY sentiment_label
-ORDER BY count DESC;
+-- issues：拼接 title/description 作为待分析文本
+SELECT id, CONCAT_WS('\n\n', title, description) AS text
+FROM issues
+WHERE created_at >= '2025-01-01';
 
--- 查看高置信度的功能/性能类反馈文本（含正面与负面评价）
-SELECT pt.source_type, pt.source_id, pt.processed_text,
-       sr.sentiment_label, sr.confidence, sr.reasoning
-FROM processed_texts pt
-JOIN sentiment_results sr ON sr.processed_text_id = pt.id
-WHERE sr.sentiment_label = 'functional_performance'
-  AND sr.confidence >= 0.9
-ORDER BY sr.confidence DESC
-LIMIT 20;
+-- issue_comments：直接用 body
+SELECT id, body AS text
+FROM issue_comments
+WHERE body IS NOT NULL AND body != '';
+```
 
--- 按来源类型统计情感分布
-SELECT pt.source_type, sr.sentiment_label, COUNT(*) AS count
-FROM processed_texts pt
-JOIN sentiment_results sr ON sr.processed_text_id = pt.id
-GROUP BY pt.source_type, sr.sentiment_label
-ORDER BY pt.source_type, count DESC;
+`sentiment_output.json` 示例结构：
 
--- 查看预处理统计
-SELECT
-    source_type,
-    COUNT(*) AS total,
-    SUM(is_duplicate) AS duplicates,
-    COUNT(DISTINCT language) AS languages
-FROM processed_texts
-GROUP BY source_type;
+```json
+[
+  {
+    "text_id": 123,
+    "annotations": [
+      {
+        "aspect": "learning_curve",
+        "sentiment": "negative",
+        "score": -2
+      }
+    ]
+  }
+]
 ```
 
 ## 注意事项
 
-1. **运行顺序**：请先运行 Step-1-Code 采集数据，再运行本项目处理数据。
+1. **运行顺序**：请先运行 Step-1-Code 采集数据，再运行本项目分析数据。
 2. **API 费用**：DeepSeek API 按调用量计费，建议先用少量数据测试。
 3. **速率限制**：`request_delay` 参数控制请求间隔，避免触发 API 速率限制。
-4. **断点续跑**：情感分析模块只处理尚未分析的文本（`sentiment_results` 中无记录的），可随时中断后继续运行。
-5. **语言检测准确性**：短文本的语言检测可能不准确，可通过 `min_text_length` 参数过滤过短文本。
+4. **SQL 结果要求**：`--sql` 必须是 `SELECT` 语句，并返回 `id`（或 `text_id`）与可分析文本列。
 
 ## 许可证
 

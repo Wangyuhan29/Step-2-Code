@@ -19,6 +19,9 @@ env/
 # Config (contains secrets)
 config.ini
 
+# data
+*.json
+
 # IDE
 .idea/
 .vscode/

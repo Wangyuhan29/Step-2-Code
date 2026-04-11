@@ -108,8 +108,7 @@ class Database:
         """创建处理结果表（如果不存在）"""
         with self.cursor() as cur:
             cur.execute(_CREATE_PROCESSED_TEXTS_TABLE)
-            cur.execute(_CREATE_SENTIMENT_RESULTS_TABLE)
-        logger.info("输出表已就绪（processed_texts / sentiment_results）")
+        logger.info("输出表已就绪（processed_texts）")
 
     # ------------------------------------------------------------------
     # 读取原始数据
@@ -245,18 +244,16 @@ class Database:
 
     def iter_unanalyzed_texts(self, batch_size: int = 50) -> Iterator[List[dict]]:
         """
-        迭代读取尚未进行情感分析的 processed_texts 记录
-        （is_duplicate=0 且 processed_text 不为空且语言在允许范围内）
+        迭代读取可用于情感分析的 processed_texts 记录
+        （is_duplicate=0 且 processed_text 不为空）
         """
         offset = 0
         sql = """
             SELECT pt.id, pt.processed_text, pt.source_type, pt.source_id
             FROM processed_texts pt
-            LEFT JOIN sentiment_results sr ON sr.processed_text_id = pt.id
             WHERE pt.is_duplicate = 0
               AND pt.processed_text IS NOT NULL
               AND pt.processed_text != ''
-              AND sr.id IS NULL
             ORDER BY pt.id
             LIMIT %s OFFSET %s
         """
@@ -268,3 +265,20 @@ class Database:
                 break
             yield rows
             offset += batch_size
+
+    def iter_rows_by_sql(self, sql: str, batch_size: int = 50) -> Iterator[List[dict]]:
+        """
+        执行用户提供的 SELECT SQL，并按批次返回结果。
+        结果行需至少包含 id（或 text_id）与可分析文本列（如 text/title/description/body）。
+        """
+        if not sql or not sql.strip().lower().startswith("select"):
+            raise ValueError("仅允许执行 SELECT 语句")
+
+        with self.cursor() as cur:
+            cur.execute(sql)
+            while True:
+                rows = cur.fetchmany(batch_size)
+                if not rows:
+                    break
+                yield rows
+

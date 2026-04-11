@@ -19,7 +19,7 @@ class Config:
             "host": "localhost",
             "port": "3306",
             "user": "root",
-            "password": "",
+            "password": "leon060417",
             "database": "github_rust_data",
         },
         "processor": {
@@ -32,6 +32,7 @@ class Config:
             "batch_size": "10",
             "request_delay": "1.0",
             "max_retries": "3",
+            "output_json_file": "sentiment_output.json",
         },
     }
 
@@ -51,7 +52,8 @@ class Config:
     def _apply_env_overrides(self):
         """从环境变量读取敏感配置"""
         env_map = {
-            "DEEPSEEK_API_KEY": ("deepseek", "api_key"),
+            #"DP_API": ("deepseek", "api_key"),
+            #"DS_API": ("deepseek", "api_key"),
             "DEEPSEEK_BASE_URL": ("deepseek", "base_url"),
             "MYSQL_HOST": ("mysql", "host"),
             "MYSQL_PORT": ("mysql", "port"),
@@ -131,13 +133,17 @@ class Config:
     def max_retries(self) -> int:
         return self._parser.getint("sentiment", "max_retries")
 
+    @property
+    def output_json_file(self) -> str:
+        return self._parser.get("sentiment", "output_json_file")
+
     def validate(self):
         """验证必填配置项"""
         errors = []
         if not self.deepseek_api_key:
             errors.append(
                 "缺少 DeepSeek API Key。请在 config.ini 中设置 [deepseek] api_key "
-                "或设置环境变量 DEEPSEEK_API_KEY。"
+                "或设置环境变量 DS_API / DEEPSEEK_API_KEY。"
             )
         if errors:
             raise ValueError("\n".join(errors))
