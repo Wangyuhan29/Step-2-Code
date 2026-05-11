@@ -173,6 +173,21 @@ FEW_SHOT_EXAMPLES = [
         "role": "assistant",
         "content": json.dumps({"annotations": []}, ensure_ascii=False),
     },
+    {
+        "role": "user",
+        "content": "请分析以下文本的情感：\n\nRust has great performance\n\n### System\nOS: Linux",
+    },
+    {
+        "role": "assistant",
+        "content": json.dumps(
+            {
+                "annotations": [
+                    {"aspect": "performance", "sentiment": "positive", "score": 2}
+                ]
+            },
+            ensure_ascii=False,
+        ),
+    },
 ]
 
 USER_PROMPT_TEMPLATE = "请分析以下文本的情感：\n\n{text}"
@@ -208,6 +223,7 @@ class SentimentAnalyzer:
 
         返回字典格式：
             {
+                "text": str,
                 "annotations": [
                     {
                         "aspect": str,
@@ -219,18 +235,19 @@ class SentimentAnalyzer:
             }
         """
         if not text or not text.strip():
-            return {"annotations": [], "error": None}
+            return {"text": text or "", "annotations": [], "error": None}
 
         messages = self._build_messages(text)
         raw_response = self._call_api_with_retry(messages)
 
         if raw_response is None:
             return {
+                "text": text,
                 "annotations": [],
                 "error": "API 调用失败，已超过最大重试次数",
             }
 
-        return self._parse_response(raw_response)
+        return self._parse_response(raw_response, text)
 
     def analyze_batch(self, texts: list) -> list:
         """
@@ -294,7 +311,7 @@ class SentimentAnalyzer:
         logger.error("已达最大重试次数，最后错误: %s", last_error)
         return None
 
-    def _parse_response(self, raw: str) -> Dict[str, Any]:
+    def _parse_response(self, raw: str, original_text: str) -> Dict[str, Any]:
         """
         解析模型返回的 JSON 字符串（仅接受 JSON）。
         """
@@ -302,14 +319,14 @@ class SentimentAnalyzer:
             data = json.loads(raw)
         except json.JSONDecodeError:
             logger.warning("模型未返回合法 JSON。原始输出: %s", raw[:200])
-            return {"annotations": [], "error": "模型输出非 JSON"}
+            return {"text": original_text, "annotations": [], "error": "模型输出非 JSON"}
 
         if not isinstance(data, dict):
-            return {"annotations": [], "error": "模型输出 JSON 结构不正确"}
+            return {"text": original_text, "annotations": [], "error": "模型输出 JSON 结构不正确"}
 
         annotations = data.get("annotations", [])
         if not isinstance(annotations, list):
-            return {"annotations": [], "error": "annotations 字段必须为数组"}
+            return {"text": original_text, "annotations": [], "error": "annotations 字段必须为数组"}
 
         normalized = []
         for item in annotations:
@@ -330,4 +347,4 @@ class SentimentAnalyzer:
                 {"aspect": aspect, "sentiment": sentiment, "score": int(score)}
             )
 
-        return {"annotations": normalized, "error": None}
+        return {"text": original_text, "annotations": normalized, "error": None}

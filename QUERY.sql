@@ -4,4 +4,4 @@ SELECT
 FROM issues
 WHERE (title IS NOT NULL AND title <> '')
    OR (description IS NOT NULL AND description <> '')
-    LIMIT 10;
+    LIMIT 5000;

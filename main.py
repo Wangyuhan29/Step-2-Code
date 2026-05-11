@@ -7,7 +7,8 @@
 
 说明：
   - 停用预处理流程，改为手动 SQL 筛选后直接调用情感分析 API。
-  - 输出 JSON 仅包含 text_id（原始表 id）和 annotations。
+  - 输出 JSON 包含 text_id（原始表 id）、text（输入语料）和 annotations。
+  - 输出按 100 条分片写入，文件名格式为 {stem}_0001{suffix}。
 """
 
 from __future__ import annotations
@@ -51,6 +52,13 @@ def _extract_text(row: dict) -> str:
     return "\n\n".join(str(p).strip() for p in parts if p and str(p).strip())
 
 
+def _get_shard_path(base_path: Path, shard_index: int) -> Path:
+    """基于输出文件路径生成分片文件路径。"""
+    return base_path.with_name(
+        f"{base_path.stem}_{shard_index:04d}{base_path.suffix}"
+    )
+
+
 def run_sentiment_analysis(db: Database, config: Config, sql: str, output_json: str):
     """
     执行手动 SQL 筛选，调用 DeepSeek API 进行情感分类，结果写入 JSON 文件。
@@ -61,6 +69,8 @@ def run_sentiment_analysis(db: Database, config: Config, sql: str, output_json: 
 
     total_input = 0
     output_records = []
+    shard_size = 100
+    shard_index = 1
 
     for batch in db.iter_rows_by_sql(sql=sql, batch_size=config.batch_size):
         if not batch:
@@ -86,16 +96,26 @@ def run_sentiment_analysis(db: Database, config: Config, sql: str, output_json: 
             output_records.append(
                 {
                     "text_id": text_id,
+                    "text": result.get("text", ""),
                     "annotations": result.get("annotations", []),
                 }
             )
+            if len(output_records) >= shard_size:
+                shard_path = _get_shard_path(output_path, shard_index)
+                shard_path.parent.mkdir(parents=True, exist_ok=True)
+                with shard_path.open("w", encoding="utf-8") as f:
+                    json.dump(output_records, f, ensure_ascii=False, indent=2)
+                output_records = []
+                shard_index += 1
 
-    output_path.parent.mkdir(parents=True, exist_ok=True)
-    with output_path.open("w", encoding="utf-8") as f:
-        json.dump(output_records, f, ensure_ascii=False, indent=2)
+    if output_records:
+        shard_path = _get_shard_path(output_path, shard_index)
+        shard_path.parent.mkdir(parents=True, exist_ok=True)
+        with shard_path.open("w", encoding="utf-8") as f:
+            json.dump(output_records, f, ensure_ascii=False, indent=2)
 
-    logger.info("=== 情感分析完成 | 输入文本: %d | 输出记录: %d ===", total_input, len(output_records))
-    logger.info("结果已写入 JSON 文件: %s", output_path)
+    logger.info("=== 情感分析完成 | 输入文本: %d | 输出记录: %d ===", total_input, len(output_records) + (shard_index - 1) * shard_size)
+    logger.info("结果已写入分片文件（前缀: %s）", output_path)
 
 
 def _load_sql_from_file(sql_file: str) -> str:

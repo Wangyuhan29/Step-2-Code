@@ -274,11 +274,16 @@ class Database:
         if not sql or not sql.strip().lower().startswith("select"):
             raise ValueError("仅允许执行 SELECT 语句")
 
-        with self.cursor() as cur:
-            cur.execute(sql)
-            while True:
-                rows = cur.fetchmany(batch_size)
-                if not rows:
-                    break
-                yield rows
-
+        base_sql = sql.rstrip().rstrip(";")
+        offset = 0
+        while True:
+            with self.cursor() as cur:
+                cur.execute(
+                    f"SELECT * FROM ({base_sql}) AS subq LIMIT %s OFFSET %s",
+                    (batch_size, offset),
+                )
+                rows = cur.fetchall()
+            if not rows:
+                break
+            yield rows
+            offset += batch_size
